@@ -40,16 +40,15 @@ class TcpUser():
                 return user[2]
         return None
 
-    def get_linked_ip(self):
+    def linked_ip_list(self):
         '''get linked terminal ip'''
-        linked_ip_list = []
+        ip_list = []
         for user in self.user_list:
-            if user[1] not in linked_ip_list:
-                linked_ip_list.append(user[1])
-        return linked_ip_list
+            if user[1] not in ip_list:
+                ip_list.append(user[1])
+        return ip_list
 
-
-    def get_info(self):
+    def info(self):
         '''get user list'''
         user_list_text = '\r\n---------------------user list----------------------\r\n'
         user_list_text += '%4s%16s%18s\r\n'%('-NO-', '-user IP-', '-linked IP-')
@@ -60,8 +59,87 @@ class TcpUser():
                 user_list_text += '%4s%16s%18s\r\n'%(count+1, user[0], user[1])
         return user_list_text
 
-TCP_USER_LIST = TcpUser()
 
+class TerminalList():
+    '''
+    terminal list class
+    format : [['terminal ip', 'terminal mac', 'run time'], [...]]
+    '''
+    def __init__(self):
+        '''init'''
+        self.terminal_list = []
+        self.broad_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.broad_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self.broad_socket.bind(('', config.BROADCAST_PORT))
+        threading.Thread(name='udp broadcast re', target=self.__broad_re__).start()
+
+    def __broad_re__(self):
+        '''udp broadcast re'''
+        self.terminal_list = []
+        while True:
+            try:
+                re_broadcast, (re_ip, _) = self.broad_socket.recvfrom(1024)
+                # print(str(re_broadcast))
+            except Exception:
+                traceback.print_exc()
+                continue
+            if re_broadcast != b'':
+                terminal_info = list(map(lambda hex: '%02x'%hex, re_broadcast))
+                # print('terminal_info:', terminal_info)
+                if ''.join(terminal_info[0:4]) != '22786519': # magic num
+                    print('magic num err:', ''.join(terminal_info[0:4]))
+                    continue
+                terminal_mac = ''.join(terminal_info[5:11])
+                terminal_run_time = str(int(''.join(terminal_info[23:19:-1]), 16) // 60) + 'min'
+                for (count, terminal) in enumerate(self.terminal_list):
+                    if re_ip == terminal[0]:
+                        self.terminal_list[count] = [re_ip, terminal_mac, terminal_run_time]
+                        break
+                else:
+                    self.terminal_list.append([re_ip, terminal_mac, terminal_run_time])
+
+    def __send_udp_broadcast__(self):
+        '''udp broadcast to find terminal'''
+        broad_list = \
+        '19 65 78 22 00 00 77 68 6F 20 69 73 20 64 63 75 20 64 65 76 3F 00 19 65 78 22'.split(' ')
+        broad_data = b''
+        for data in broad_list:
+            broad_data += struct.pack('B', int(data, 16))
+        self.broad_socket.sendto(broad_data, ('<broadcast>', 19001))
+
+    def delete(self, terminal_ip):
+        '''delete tcp user from the list, (USELESS?)'''
+        for (count, user) in enumerate(self.terminal_list):
+            if terminal_ip == user[0]:
+                del self.terminal_list[count]
+                break
+
+    def update(self):
+        '''update terminal list'''
+        self.__send_udp_broadcast__()
+        time.sleep(config.UDP_BROADCAST_TM)
+        self.terminal_list.sort(key=lambda k: k[0])
+
+    def info(self):
+        '''get terminal list'''
+        text = '\r\n-------------------terminal list-------------------\r\n'
+        text += '%4s%16s%18s%14s\r\n'%('-NO-', '-IP-', '-terminal MAC-', '-run time-')
+        if len(self.terminal_list) == 0:
+            text += 'None'
+        else:
+            for (count, terminal) in enumerate(self.terminal_list):
+                text += '%4s%16s%18s%14s\r\n'%(count+1, terminal[0], terminal[1], terminal[2])
+        return text
+
+    def the_ip(self, index):
+        '''get ip by index(start from 1)'''
+        if 1 <= index <= len(self.terminal_list):
+            return self.terminal_list[index - 1][0]
+        else:
+            return None
+
+TCP_USER_LIST = TcpUser()
+TERMINAL_LIST = TerminalList()
 
 
 def tcp_server_accept():
@@ -71,8 +149,8 @@ def tcp_server_accept():
     tcp_server.listen(32)
     while True:
         try:
-            tcp_client, addr = tcp_server.accept()
-            print(addr, "connected")
+            tcp_client, (user_ip, _) = tcp_server.accept()
+            print(user_ip, "connected")
             tcp_client.sendall\
             ('\r\n\r\n*****Welcome!*****\r\nPress ENTER to refresh terminal list.\n'\
             .encode('gb2312', errors='ignore'))
@@ -81,39 +159,32 @@ def tcp_server_accept():
             break
 
         for thread_find in threading.enumerate():
-            if thread_find.getName() == 'tcp(%s)'%addr[0]:
+            if thread_find.getName() == 'tcp(%s)'%user_ip:
                 stop_thread(thread_find)
-        threading.Thread(name='tcp(%s)'%addr[0], target=tcp_run, args=(tcp_client, addr)).start()
+        threading.Thread(name='tcp(%s)'%user_ip, target=tcp_run, args=(tcp_client, user_ip)).start()
 
 
-def update_terminal_list():
-    '''update terminal list and send list to tcp client'''
-    config.TERMINAL_LIST = []
-    udp_broadcast()
-    time.sleep(1)
-    config.TERMINAL_LIST.sort(key=lambda k: k[0])
-
-
-def tcp_run(tcp_client, addr):
+def tcp_run(tcp_client, user_ip):
     '''re tcp frame'''
-    tcp_client.sendall('\nupdating...\n'.encode('gb2312', errors='ignore'))
-    update_terminal_list()
-    tcp_client.sendall(get_terminal_list().encode('gb2312', errors='ignore'))
+    tcp_client.sendall('\r\nupdating...\r\n'.encode('gb2312', errors='ignore'))
+    TERMINAL_LIST.update()
+    tcp_client.sendall(TERMINAL_LIST.info().encode('gb2312', errors='ignore'))
     while True:
         re_byte = tcp_client.recv(128)  # re terminal NO select
-        if re_byte != b'':
-            try:
-                terminal_no = int(re_byte.decode('gb2312', errors='ignore'))
-                target_terminal_addr = config.TERMINAL_LIST[terminal_no - 1][0]
-            except Exception:
-                print('exception')
-                if re_byte == b'\r\n':
-                    tcp_client.sendall('\nupdating...\n'.encode('gb2312', errors='ignore'))
-                    update_terminal_list()
-                    tcp_client.sendall(get_terminal_list().encode('gb2312', errors='ignore'))
-                continue
-
-            TCP_USER_LIST.add(addr[0], target_terminal_addr, tcp_client)
+        if re_byte == b'':
+            continue
+        if re_byte == b'\r\n':
+            tcp_client.sendall('\r\nupdating...\r\n'.encode('gb2312', errors='ignore'))
+            TERMINAL_LIST.update()
+            tcp_client.sendall(TERMINAL_LIST.info().encode('gb2312', errors='ignore'))
+            continue
+        try:
+            terminal_no = int(re_byte.decode('gb2312', errors='ignore'))
+        except Exception:
+            continue
+        target_terminal_ip = TERMINAL_LIST.the_ip(terminal_no)
+        if target_terminal_ip is not None:
+            TCP_USER_LIST.add(user_ip, target_terminal_ip, tcp_client)
             break
 
     while True:
@@ -122,8 +193,8 @@ def tcp_run(tcp_client, addr):
         except Exception:
             tcp_client.shutdown(2)  # SHUT_RDWR
             tcp_client.close()
-            TCP_USER_LIST.delete(addr[0])
-            print('TCP user %s quit'%addr[0])
+            TCP_USER_LIST.delete(user_ip)
+            print('TCP user %s quit'%user_ip)
             break
 
         if re_byte != b'':
@@ -144,8 +215,8 @@ def tcp_run(tcp_client, addr):
 
             # data send to terminal
             try:
-                print('send to udp', target_terminal_addr)
-                config.UDP_SOCKET.sendto(re_byte, (target_terminal_addr, 19000))
+                print('send to udp', target_terminal_ip)
+                config.UDP_SOCKET.sendto(re_byte, (target_terminal_ip, 19000))
             except Exception:
                 traceback.print_exc()
                 break  # fix?
@@ -176,45 +247,10 @@ def udp_run():
                     traceback.print_exc()
 
 
-def udp_find():
-    '''udp broadcast re'''
-    while True:
-        try:
-            re_broadcast, addr = config.BROADCAST_SOCKET.recvfrom(1024)
-            # print(str(re_broadcast))
-        except Exception:
-            traceback.print_exc()
-            continue
-        if re_broadcast != b'':
-            terminal_info = list(map(lambda hex: '%02x'%hex, re_broadcast))
-            # print('terminal_info:', terminal_info)
-            if ''.join(terminal_info[0:4]) != '22786519': # magic num
-                print('magic num err:', ''.join(terminal_info[0:4]))
-                continue
-            terminal_mac = ''.join(terminal_info[5:11])
-            terminal_run_time = str(int(''.join(terminal_info[23:19:-1]), 16) // 60) + 'min'
-            for (count, terminal) in enumerate(config.TERMINAL_LIST):
-                if addr[0] == terminal[0]:
-                    config.TERMINAL_LIST[count] = [addr[0], terminal_mac, terminal_run_time]
-                    break
-            else:
-                config.TERMINAL_LIST.append([addr[0], terminal_mac, terminal_run_time])
-
-
-def udp_broadcast():
-    '''udp broadcast to find terminal'''
-    broad_list = \
-    '19 65 78 22 00 00 77 68 6F 20 69 73 20 64 63 75 20 64 65 76 3F 00 19 65 78 22'.split(' ')
-    broad_data = b''
-    for data in broad_list:
-        broad_data += struct.pack('B', int(data, 16))
-    config.BROADCAST_SOCKET.sendto(broad_data, ('<broadcast>', 19001))
-
-
 def udp_heartbeat():
     '''udp send heartbeat to terminal'''
     while True:
-        for linked_ip in TCP_USER_LIST.get_linked_ip():
+        for linked_ip in TCP_USER_LIST.linked_ip_list():
             config.UDP_SOCKET.sendto(b'', (linked_ip, 19000))
             print('send hb to', linked_ip)
         time.sleep(config.UDP_HEARTBEAT_TM)
@@ -238,10 +274,10 @@ def get_my_info(command):
     if command == 'i':
         return get_thread_info()
     elif command == 'u':
-        return TCP_USER_LIST.get_info()
+        return TCP_USER_LIST.info()
     elif command == 't':
-        update_terminal_list()
-        return get_terminal_list()
+        TERMINAL_LIST.update()
+        return TERMINAL_LIST.info()
     else:
         return 'command not found\r\n'
 
@@ -254,31 +290,12 @@ def get_thread_info():
     return thread_info
 
 
-def get_terminal_list():
-    '''get terminal list'''
-    text = '\r\n-------------------terminal list-------------------\r\n'
-    text += '%4s%16s%18s%14s\r\n'%('-NO-', '-IP-', '-terminal MAC-', '-run time-')
-    if len(config.TERMINAL_LIST) == 0:
-        text += 'None'
-    else:
-        for (count, terminal) in enumerate(config.TERMINAL_LIST):
-            text += '%4s%16s%18s%14s\r\n'%(count+1, terminal[0], terminal[1], terminal[2])
-    return text
-
-
 if __name__ == '__main__':
-
-
     config.UDP_SOCKET = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     config.UDP_SOCKET.bind(('', 19000))
 
-    config.BROADCAST_SOCKET = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    config.BROADCAST_SOCKET.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    config.BROADCAST_SOCKET.bind(('', config.BROADCAST_PORT))
-
     threading.Thread(name='tcp accept', target=tcp_server_accept).start()
     threading.Thread(name='udp re', target=udp_run).start()
-    threading.Thread(name='udp broadcast re', target=udp_find).start()
     threading.Thread(name='udp heartbeat se', target=udp_heartbeat).start()
 
     while True:
