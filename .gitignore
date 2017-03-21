@@ -1,4 +1,5 @@
 test.py
+logs/
 build/
 dist/
 __pycache__/

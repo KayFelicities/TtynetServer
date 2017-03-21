@@ -1,10 +1,11 @@
-'''udp terminal main file'''
+'''ttynet server main file'''
 import socket
 import threading
 import traceback
 import struct
 import time
 import ctypes
+import os
 import config
 
 
@@ -75,7 +76,6 @@ class TerminalList():
 
     def __broad_re__(self):
         '''udp broadcast re'''
-        self.terminal_list = []
         while True:
             try:
                 re_broadcast, (re_ip, _) = self.broad_socket.recvfrom(1024)
@@ -116,6 +116,7 @@ class TerminalList():
 
     def update(self):
         '''update terminal list'''
+        self.terminal_list = []
         self.__send_udp_broadcast__()
         time.sleep(config.UDP_BROADCAST_TM)
         self.terminal_list.sort(key=lambda k: k[0])
@@ -125,7 +126,7 @@ class TerminalList():
         text = '\r\n-------------------terminal list-------------------\r\n'
         text += '%4s%16s%18s%14s\r\n'%('-NO-', '-IP-', '-terminal MAC-', '-run time-')
         if len(self.terminal_list) == 0:
-            text += 'None'
+            text += 'None\r\n'
         else:
             for (count, terminal) in enumerate(self.terminal_list):
                 text += '%4s%16s%18s%14s\r\n'%(count+1, terminal[0], terminal[1], terminal[2])
@@ -152,7 +153,7 @@ def tcp_server_accept():
             tcp_client, (user_ip, _) = tcp_server.accept()
             print(user_ip, "connected")
             tcp_client.sendall\
-            ('\r\n\r\n*****Welcome!*****\r\nPress ENTER to refresh terminal list.\n'\
+            ('\r\n*****Welcome!*****\r\nPress ENTER to refresh terminal list.\r\n'\
             .encode('gb2312', errors='ignore'))
         except Exception:
             traceback.print_exc()
@@ -169,24 +170,35 @@ def tcp_run(tcp_client, user_ip):
     tcp_client.sendall('\r\nupdating...\r\n'.encode('gb2312', errors='ignore'))
     TERMINAL_LIST.update()
     tcp_client.sendall(TERMINAL_LIST.info().encode('gb2312', errors='ignore'))
+    tcp_client.sendall('input a number or ip:'.encode('gb2312', errors='ignore'))
     while True:
-        re_byte = tcp_client.recv(128)  # re terminal NO select
-        if re_byte == b'':
-            continue
+        re_byte = tcp_client.recv(128)  # re terminal NO select or ip
         if re_byte == b'\r\n':
             tcp_client.sendall('\r\nupdating...\r\n'.encode('gb2312', errors='ignore'))
             TERMINAL_LIST.update()
             tcp_client.sendall(TERMINAL_LIST.info().encode('gb2312', errors='ignore'))
+            tcp_client.sendall('input a number or ip:'.encode('gb2312', errors='ignore'))
             continue
-        try:
-            terminal_no = int(re_byte.decode('gb2312', errors='ignore'))
-        except Exception:
-            continue
-        target_terminal_ip = TERMINAL_LIST.the_ip(terminal_no)
-        if target_terminal_ip is not None:
+        re_text = re_byte.decode('gb2312', errors='ignore').strip()
+        if len(re_text) <= 2:  # try number
+            try:
+                terminal_no = int(re_byte.decode('gb2312', errors='ignore'))
+            except Exception:
+                continue
+            target_terminal_ip = TERMINAL_LIST.the_ip(terminal_no)
+            if target_terminal_ip is not None:
+                TCP_USER_LIST.add(user_ip, target_terminal_ip, tcp_client)
+                break
+        elif len(list(filter(lambda x: x >= 0 and x <= 255,\
+                map(int, filter(lambda x: x.isdigit(), re_text.split('.')))))) == 4:  # try ip
+            target_terminal_ip = re_text
             TCP_USER_LIST.add(user_ip, target_terminal_ip, tcp_client)
             break
+        else:
+            continue
 
+    tcp_client.sendall('connected to {0}'.format(target_terminal_ip)\
+                        .encode('gb2312', errors='ignore'))
     while True:
         try:
             re_byte = tcp_client.recv(1024)
@@ -224,6 +236,8 @@ def tcp_run(tcp_client, user_ip):
 
 def udp_run():
     '''re udp frame'''
+    if not os.path.exists(config.LOG_PATH):
+        os.makedirs(config.LOG_PATH)
     while True:
         try:
             re_byte, addr = config.UDP_SOCKET.recvfrom(65536)
@@ -237,7 +251,7 @@ def udp_run():
                 print('udp re ignored')
                 continue
             print('udp re:', re_text)
-            with open('%s.txt'%addr[0], 'a') as file_h:
+            with open('%s%s.txt'%(config.LOG_PATH, addr[0]), 'a') as file_h:
                 file_h.write(re_text)
             tcp_socket = TCP_USER_LIST.socket_handle(addr[0])
             if tcp_socket is not None:
