@@ -3,3 +3,5 @@ logs/
 build/
 dist/
 __pycache__/
+AutoMake.exe
+AutoMake.ini

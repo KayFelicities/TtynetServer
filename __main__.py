@@ -36,10 +36,11 @@ class TcpUser():
 
     def socket_handle(self, linked_ip):
         '''get socket handle by user tcp ip'''
+        socket_list = []
         for user in self.user_list:
             if linked_ip == user[1]:
-                return user[2]
-        return None
+                socket_list.append(user[2])
+        return socket_list
 
     def linked_ip_list(self):
         '''get linked terminal ip'''
@@ -253,8 +254,8 @@ def udp_run():
             print('udp re:', re_text)
             with open('%s%s.txt'%(config.LOG_PATH, addr[0]), 'a') as file_h:
                 file_h.write(re_text)
-            tcp_socket = TCP_USER_LIST.socket_handle(addr[0])
-            if tcp_socket is not None:
+            tcp_socket_list = TCP_USER_LIST.socket_handle(addr[0])
+            for tcp_socket in tcp_socket_list:
                 try:
                     tcp_socket.sendall(re_byte)
                 except Exception:
