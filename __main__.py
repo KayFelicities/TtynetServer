@@ -313,5 +313,7 @@ if __name__ == '__main__':
     threading.Thread(name='udp re', target=udp_run).start()
     threading.Thread(name='udp heartbeat se', target=udp_heartbeat).start()
 
+    print('TTYNet Server V1.0(2017.03.27) Designed by Kay')
+
     while True:
         print(get_my_info(input()))
