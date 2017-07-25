@@ -32,15 +32,18 @@ class TcpUser():
         for (count, user) in enumerate(self.user_list):
             if user_ip == user[0]:
                 del self.user_list[count]
+                for thread_find in threading.enumerate():
+                    if thread_find.getName() == 'tcp(%s)'%user_ip:
+                        stop_thread(thread_find)
                 break
 
-    def socket_handle(self, linked_ip):
-        '''get socket handle by user tcp ip'''
-        socket_list = []
+    def get_tcp_user(self, linked_ip):
+        '''get socket handle by user tcp ip, format: [['tcp user ip', tcp socket], [...]]'''
+        tcp_list = []
         for user in self.user_list:
             if linked_ip == user[1]:
-                socket_list.append(user[2])
-        return socket_list
+                tcp_list.append([user[0], user[2]])
+        return tcp_list
 
     def linked_ip_list(self):
         '''get linked terminal ip'''
@@ -210,7 +213,7 @@ def tcp_run(tcp_client, user_ip):
             print('TCP user %s quit'%user_ip)
             break
 
-        if re_byte != b'':
+        if re_byte:
             print('re_byte:', re_byte)
             re_text = re_byte.decode('gb2312', errors='ignore')
             if len(re_text) == 0:
@@ -254,11 +257,13 @@ def udp_run():
             print('udp re:', re_text)
             with open('%s%s.txt'%(config.LOG_PATH, addr[0]), 'a') as file_h:
                 file_h.write(re_text)
-            tcp_socket_list = TCP_USER_LIST.socket_handle(addr[0])
-            for tcp_socket in tcp_socket_list:
+            tcp_socket_list = TCP_USER_LIST.get_tcp_user(addr[0])
+            for tcp_ip, tcp_socket in tcp_socket_list:
                 try:
                     tcp_socket.sendall(re_byte)
                 except Exception:
+                    TCP_USER_LIST.delete(tcp_ip)
+                    print('TCP user %s quit'%tcp_ip)
                     traceback.print_exc()
 
 
@@ -316,4 +321,5 @@ if __name__ == '__main__':
     print('TTYNet Server V1.0(2017.03.27) Designed by Kay')
 
     while True:
-        print(get_my_info(input()))
+        time.sleep(60)
+        # print(get_my_info(input()))
