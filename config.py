@@ -1,6 +1,9 @@
 '''ttynet config'''
 
 
+VER_DATE = 'V1.1(2017.07.26)'
+
+
 UDP_SOCKET = None
 
 LOG_PATH = 'logs//'

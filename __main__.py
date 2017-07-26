@@ -214,7 +214,7 @@ def tcp_run(tcp_client, user_ip):
             break
 
         if re_byte:
-            print('re_byte:', re_byte)
+            # print('re_byte:', re_byte)
             re_text = re_byte.decode('gb2312', errors='ignore')
             if len(re_text) == 0:
                 print('tcp re ignored')
@@ -224,7 +224,7 @@ def tcp_run(tcp_client, user_ip):
             # local command
             if re_text[0:2] == 's:':
                 try:
-                    tcp_client.sendall(get_my_info(re_text[2:]).encode('gb2312', errors='ignore'))
+                    tcp_client.sendall(get_my_info(re_text[2:].strip()).encode('gb2312', errors='ignore'))
                 except Exception:
                     traceback.print_exc()
                 continue
@@ -261,10 +261,11 @@ def udp_run():
             for tcp_ip, tcp_socket in tcp_socket_list:
                 try:
                     tcp_socket.sendall(re_byte)
-                except Exception:
+                except (Exception, BrokenPipeError):
                     TCP_USER_LIST.delete(tcp_ip)
                     print('TCP user %s quit'%tcp_ip)
                     traceback.print_exc()
+    print('udp quit')
 
 
 def udp_heartbeat():
@@ -299,7 +300,7 @@ def get_my_info(command):
         TERMINAL_LIST.update()
         return TERMINAL_LIST.info()
     else:
-        return 'command not found\r\n'
+        return 'command \'%s\' not found\r\n'%command
 
 
 def get_thread_info():
@@ -318,7 +319,7 @@ if __name__ == '__main__':
     threading.Thread(name='udp re', target=udp_run).start()
     threading.Thread(name='udp heartbeat se', target=udp_heartbeat).start()
 
-    print('TTYNet Server V1.0(2017.03.27) Designed by Kay')
+    print('TTYNet Server %s Designed by Kay'%config.VER_DATE)
 
     while True:
         time.sleep(60)
