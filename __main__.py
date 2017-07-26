@@ -157,8 +157,8 @@ def tcp_server_accept():
             tcp_client, (user_ip, _) = tcp_server.accept()
             print(user_ip, "connected")
             tcp_client.sendall\
-            ('\r\n*****Welcome!*****\r\nPress ENTER to refresh terminal list.\r\n'\
-            .encode('gb2312', errors='ignore'))
+            ('\r\n*****TTYNet Server {ver_date} Designed by Kay*****\r\nPress ENTER to refresh terminal list.\r\n'\
+            .format(ver_date=config.VER_DATE).encode('gb2312', errors='ignore'))
         except Exception:
             traceback.print_exc()
             break
